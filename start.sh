@@ -22,4 +22,11 @@ echo "Using image tag: $IMAGE_TAG"
 
 echo "$GHCR_TOKEN" | docker login ghcr.io -u iraj720 --password-stdin
 
-docker-compose up "$@"
+FILES_DIR="$(pwd)"
+DB_PATH="${FILES_DIR}/files.db"
+if [ ! -f "$DB_PATH" ]; then
+  touch "$DB_PATH"
+fi
+chmod 666 "$DB_PATH"
+
+docker compose up "$@"
