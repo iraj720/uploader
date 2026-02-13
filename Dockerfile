@@ -1,7 +1,7 @@
 FROM golang:1.22-bookworm AS builder
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libsqlite3-dev && \
+    apt-get install -y --no-install-recommends libsqlite3-dev gcc && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
@@ -12,7 +12,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+RUN CGO_ENABLED=1 GOOS=linux \
     go build -ldflags="-s -w" -o /workspace/uploader ./cmd/uploader
 
 FROM debian:bookworm-slim
