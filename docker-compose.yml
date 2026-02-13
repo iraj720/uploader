@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   uploader:
-    image: ghcr.io/iraj720/uploader:latest
+    image: ghcr.io/iraj720/uploader:4ff028befd1e3707a0d445fe450d30f2eac363d3ab94f72e3d299d9c7da25031
     restart: unless-stopped
     environment:
       - CONFIG_PATH=/etc/uploader/config.yaml
