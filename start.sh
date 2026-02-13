@@ -22,4 +22,4 @@ echo "Using image tag: $IMAGE_TAG"
 
 echo "$GHCR_TOKEN" | docker login ghcr.io -u iraj720 --password-stdin
 
-docker compose up "$@"
+docker-compose up "$@"
