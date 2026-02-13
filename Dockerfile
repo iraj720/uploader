@@ -15,14 +15,19 @@ COPY . .
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-s -w" -o /workspace/uploader ./cmd/uploader
 
-FROM gcr.io/distroless/cc-debian11
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates libsqlite3-0 && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN addgroup --system uploader && adduser --system --ingroup uploader uploader
 
 COPY --from=builder /workspace/uploader /usr/local/bin/uploader
-COPY --from=builder /usr/lib/x86_64-linux-gnu/libsqlite3.so.0 /usr/lib/x86_64-linux-gnu/
 COPY config.yaml /etc/uploader/config.yaml
 
 WORKDIR /etc/uploader
 
-USER 65532:65532
+USER uploader
 
 ENTRYPOINT ["/usr/local/bin/uploader"]
