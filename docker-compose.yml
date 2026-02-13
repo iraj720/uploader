@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   uploader:
-    image: ghcr.io/iraj720/uploader:latest
+    image: ghcr.io/iraj720/uploader:${IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
     environment:

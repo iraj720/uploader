@@ -6,13 +6,20 @@ if [ -z "${GHCR_TOKEN:-}" ]; then
   exit 1
 fi
 
+TAG_ARG=""
+if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+  TAG_ARG="$1"
+  shift
+fi
+
+if [ -n "$TAG_ARG" ]; then
+  export IMAGE_TAG="$TAG_ARG"
+elif [ -z "${IMAGE_TAG:-}" ]; then
+  export IMAGE_TAG="latest"
+fi
+
+echo "Using image tag: $IMAGE_TAG"
+
 echo "$GHCR_TOKEN" | docker login ghcr.io -u iraj720 --password-stdin
 
-#!/usr/bin/env bash
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
-docker-compose up -d
-echo "Uploader bot is starting (check logs with docker compose logs -f uploader)."
+docker compose up "$@"
