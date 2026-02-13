@@ -5,7 +5,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/iraj720/uploader:latest
     container_name: uploader-bot
     restart: unless-stopped
     environment:
