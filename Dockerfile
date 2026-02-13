@@ -11,13 +11,17 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-s -w" -o /workspace/uploader ./cmd/uploader
 
-FROM gcr.io/distroless/static-debian11
+FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates \
+ && addgroup -S uploader \
+ && adduser -S uploader -G uploader
 
 COPY --from=builder /workspace/uploader /usr/local/bin/uploader
 COPY config.yaml /etc/uploader/config.yaml
 
 WORKDIR /etc/uploader
 
-USER 65532:65532
+USER uploader
 
 ENTRYPOINT ["/usr/local/bin/uploader"]
