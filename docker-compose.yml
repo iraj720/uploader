@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  uploader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/iraj720/uploader:latest
+    container_name: uploader-bot
+    restart: unless-stopped
+    environment:
+      CONFIG_PATH: /etc/uploader/config.yaml
+    volumes:
+      - ./config.yaml:/etc/uploader/config.yaml:ro
+      - uploader-data:/etc/uploader/files.db
+
+volumes:
+  uploader-data:
