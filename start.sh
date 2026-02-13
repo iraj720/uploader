@@ -8,12 +8,11 @@ fi
 
 echo "$GHCR_TOKEN" | docker login ghcr.io -u iraj720 --password-stdin
 
-docker compose up "$@"
 #!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-docker compose up -d
+docker-compose up -d
 echo "Uploader bot is starting (check logs with docker compose logs -f uploader)."
