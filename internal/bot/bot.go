@@ -112,6 +112,9 @@ func New(configPath string) (*Bot, error) {
 			return nil, fmt.Errorf("creating db directory: %w", err)
 		}
 	}
+	if err := ensureFileExists(cfg.DBPath); err != nil {
+		return nil, fmt.Errorf("ensure db file: %w", err)
+	}
 	db, err := sql.Open("sqlite3", cfg.DBPath)
 	if err != nil {
 		return nil, err
@@ -675,6 +678,23 @@ func initDB(db *sql.DB) error {
 		)
 	`)
 	return err
+}
+
+func ensureFileExists(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("db path is empty")
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			f, err := os.OpenFile(path, os.O_CREATE, 0o644)
+			if err != nil {
+				return err
+			}
+			return f.Close()
+		}
+		return err
+	}
+	return nil
 }
 
 func (b *Bot) getBotUsername() string {
