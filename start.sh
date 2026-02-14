@@ -22,11 +22,8 @@ echo "Using image tag: $IMAGE_TAG"
 
 echo "$GHCR_TOKEN" | docker login ghcr.io -u iraj720 --password-stdin
 
-FILES_DIR="$(pwd)"
-DB_PATH="${FILES_DIR}/files.db"
-if [ ! -f "$DB_PATH" ]; then
-  touch "$DB_PATH"
+if ! docker network inspect uploader-net >/dev/null 2>&1; then
+  docker network create uploader-net
 fi
-chmod 666 "$DB_PATH"
 
-docker-compose up "$@"
+docker compose -f docker-compose.postgres.yml -f docker-compose.yml up "$@"

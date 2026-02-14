@@ -7,7 +7,15 @@ services:
     restart: unless-stopped
     environment:
       - CONFIG_PATH=/etc/uploader/config.yaml
+      - POSTGRES_DSN=${POSTGRES_DSN:-postgres://postgres:postgres@postgres:5432/uploader?sslmode=disable}
+    depends_on:
+      - postgres
     volumes:
       - ./config.yaml:/etc/uploader/config.yaml:ro
-      - ./files.db:/etc/uploader/files.db:rw
     user: "65532:65532"
+    networks:
+      - uploader-net
+
+networks:
+  uploader-net:
+    external: true

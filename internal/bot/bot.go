@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,7 +16,7 @@ import (
 
 	"github.com/aliebadimehr/telegram-uploader-bot/internal/link"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,11 +34,12 @@ type Config struct {
 	DefaultTag        string   `yaml:"default_tag"`
 	AdminPassword     string   `yaml:"admin_password"`
 	DeleteDelay       int      `yaml:"delete_delay"`
-	DBPath            string   `yaml:"db_path"`
-	WarningText       string   `yaml:"warning_text"`
-	WelcomeText       string   `yaml:"welcome_text"`
-	JoinText          string   `yaml:"join_text"`
-	NotFoundText      string   `yaml:"not_found_text"`
+	DBHost            string   `yaml:"db_host"`
+	DBPort            int      `yaml:"db_port"`
+	DBUser            string   `yaml:"db_user"`
+	DBPassword        string   `yaml:"db_password"`
+	DBName            string   `yaml:"db_name"`
+	DBSSLMode         string   `yaml:"db_sslmode"`
 	SponsoredChannels []string `yaml:"sponsored_channels"`
 }
 
@@ -53,26 +53,29 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	if cfg.DBPath == "" {
-		cfg.DBPath = "files.db"
-	}
 	if cfg.DeleteDelay == 0 {
 		cfg.DeleteDelay = 30
 	}
 	if cfg.DefaultTag == "" {
 		cfg.DefaultTag = "@ashianes"
 	}
-	if cfg.WarningText == "" {
-		cfg.WarningText = "⚠️ فایل‌ها بعد از ۳۰ ثانیه حذف خواهند شد"
+	if cfg.DBHost == "" {
+		cfg.DBHost = "postgres"
 	}
-	if cfg.WelcomeText == "" {
-		cfg.WelcomeText = "سلام! برای دانلود روی لینک فایل کلیک کنید."
+	if cfg.DBPort == 0 {
+		cfg.DBPort = 5432
 	}
-	if cfg.JoinText == "" {
-		cfg.JoinText = "لطفاً ابتدا در کانال‌های زیر عضو شوید:"
+	if cfg.DBUser == "" {
+		cfg.DBUser = "postgres"
 	}
-	if cfg.NotFoundText == "" {
-		cfg.NotFoundText = "فایل پیدا نشد یا لینک منقضی شده است."
+	if cfg.DBPassword == "" {
+		cfg.DBPassword = "postgres"
+	}
+	if cfg.DBName == "" {
+		cfg.DBName = "uploader"
+	}
+	if cfg.DBSSLMode == "" {
+		cfg.DBSSLMode = "disable"
 	}
 	cleanedSponsors := make([]string, 0, len(cfg.SponsoredChannels))
 	for _, sponsor := range cfg.SponsoredChannels {
@@ -85,6 +88,20 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, errors.New("config missing required fields (api_token, bot_username, sponsored_channels, admin_password)")
 	}
 	return &cfg, nil
+}
+
+func (cfg *Config) databaseDSN() string {
+	if env := os.Getenv("POSTGRES_DSN"); env != "" {
+		return env
+	}
+	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		cfg.DBUser,
+		cfg.DBPassword,
+		cfg.DBHost,
+		cfg.DBPort,
+		cfg.DBName,
+		cfg.DBSSLMode,
+	)
 }
 
 type Bot struct {
@@ -106,16 +123,7 @@ func New(configPath string) (*Bot, error) {
 		return nil, err
 	}
 
-	dbDir := filepath.Dir(cfg.DBPath)
-	if dbDir != "." && dbDir != "" {
-		if err := os.MkdirAll(dbDir, 0o755); err != nil {
-			return nil, fmt.Errorf("creating db directory: %w", err)
-		}
-	}
-	if err := ensureFileExists(cfg.DBPath); err != nil {
-		return nil, fmt.Errorf("ensure db file: %w", err)
-	}
-	db, err := sql.Open("sqlite3", cfg.DBPath)
+	db, err := sql.Open("postgres", cfg.databaseDSN())
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +239,7 @@ func (b *Bot) handleStart(message *tgbotapi.Message) {
 	}
 	args := b.parseArgs(message.CommandArguments())
 	if len(args) == 0 {
-		msg := tgbotapi.NewMessage(message.Chat.ID, b.getConfig().WelcomeText+"\n\n"+guideShort)
+		msg := tgbotapi.NewMessage(message.Chat.ID, localization.WelcomeText+"\n\n"+guideShort)
 		msg.ReplyMarkup = b.buildGuideKeyboard()
 		if _, err := b.api.Send(msg); err != nil {
 			b.logger.Printf("failed to send start message: %v", err)
@@ -240,7 +248,7 @@ func (b *Bot) handleStart(message *tgbotapi.Message) {
 	}
 	if !b.isMember(message.From.ID) {
 		keyboard := b.buildJoinKeyboard()
-		msg := tgbotapi.NewMessage(message.Chat.ID, b.getConfig().JoinText)
+		msg := tgbotapi.NewMessage(message.Chat.ID, localization.JoinText)
 		msg.ReplyMarkup = keyboard
 		if _, err := b.api.Send(msg); err != nil {
 			b.logger.Printf("failed to send join instructions: %v", err)
@@ -256,7 +264,7 @@ func (b *Bot) handleStart(message *tgbotapi.Message) {
 		return
 	}
 	if record == nil {
-		b.reply(message.Chat.ID, b.getConfig().NotFoundText)
+		b.reply(message.Chat.ID, localization.NotFoundText)
 		return
 	}
 	if err := b.sendFileByType(message.Chat.ID, record); err != nil {
@@ -319,7 +327,7 @@ func (b *Bot) sendFileByType(chatID int64, record *fileRecord) error {
 		if err != nil {
 			return err
 		}
-		warn := tgbotapi.NewMessage(chatID, b.getConfig().WarningText)
+		warn := tgbotapi.NewMessage(chatID, localization.WarningText)
 		sentWarn, err := b.api.Send(warn)
 		if err != nil {
 			return err
@@ -659,42 +667,25 @@ func generateKey() (string, error) {
 func initDB(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS files (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id SERIAL PRIMARY KEY,
 			file_id TEXT NOT NULL,
 			file_key TEXT NOT NULL UNIQUE,
 			caption TEXT,
 			file_type TEXT NOT NULL
-		)
+		);
 	`)
 	if err != nil {
 		return err
 	}
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS links (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id SERIAL PRIMARY KEY,
 			file_key TEXT NOT NULL UNIQUE,
 			url TEXT NOT NULL,
-			created_at DATETIME NOT NULL
-		)
+			created_at TIMESTAMPTZ NOT NULL
+		);
 	`)
 	return err
-}
-
-func ensureFileExists(path string) error {
-	if strings.TrimSpace(path) == "" {
-		return errors.New("db path is empty")
-	}
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			f, err := os.OpenFile(path, os.O_CREATE, 0o644)
-			if err != nil {
-				return err
-			}
-			return f.Close()
-		}
-		return err
-	}
-	return nil
 }
 
 func (b *Bot) getBotUsername() string {
