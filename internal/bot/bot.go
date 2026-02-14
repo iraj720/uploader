@@ -55,24 +55,6 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.DeleteDelay == 0 {
 		cfg.DeleteDelay = 30
 	}
-	if cfg.DBHost == "" {
-		cfg.DBHost = "postgres"
-	}
-	if cfg.DBPort == 0 {
-		cfg.DBPort = 5432
-	}
-	if cfg.DBUser == "" {
-		cfg.DBUser = "postgres"
-	}
-	if cfg.DBPassword == "" {
-		cfg.DBPassword = "postgres"
-	}
-	if cfg.DBName == "" {
-		cfg.DBName = "uploader"
-	}
-	if cfg.DBSSLMode == "" {
-		cfg.DBSSLMode = "disable"
-	}
 
 	cleanedSponsors := make([]string, 0, len(cfg.SponsoredChannels))
 	for _, sponsor := range cfg.SponsoredChannels {
@@ -117,13 +99,15 @@ type Bot struct {
 func New(configPath string) (*Bot, error) {
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 
 	db, err := openPostgres(cfg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("connect db: %w", err)
 	}
+
+	fmt.Println("hello")
 
 	api, err := tgbotapi.NewBotAPI(cfg.APIToken)
 	if err != nil {
@@ -291,6 +275,7 @@ func (b *Bot) handleMedia(message *tgbotapi.Message) {
 		return
 	}
 	linkURL := fmt.Sprintf("https://t.me/%s?start=%s", strings.TrimPrefix(b.getBotUsername(), "@"), fileKey)
+	linkURL, err = fmt.Sprintf("https://t.me/%s?start=%s", strings.TrimPrefix(b.getBotUsername(), "@"), fileKey), nil
 	if err := b.linkRepo.Save(&link.Link{
 		FileKey:   fileKey,
 		URL:       linkURL,
@@ -643,9 +628,10 @@ func initDB(db *sql.DB) error {
 
 func openPostgres(cfg *Config) (*sql.DB, error) {
 	dsn := cfg.databaseDSN()
+	fmt.Println("dsn", dsn)
 	var db *sql.DB
 	var err error
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 5; i++ {
 		db, err = sql.Open("postgres", dsn)
 		if err == nil {
 			err = db.Ping()
@@ -656,7 +642,7 @@ func openPostgres(cfg *Config) (*sql.DB, error) {
 			}
 			return db, nil
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 	return nil, fmt.Errorf("postgres connect: %w", err)
 }

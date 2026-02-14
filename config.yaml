@@ -2,8 +2,8 @@ api_token: "8195162287:AAGzrloKh76o_JZazF4VsIoJp-9onwLkjrg"
 bot_username: "@Uploaderxs_01bot"
 default_tag: "@ashianes"
 admin_password: "iraj720"
-db_host: "postgres"
-db_port: 5432
+db_host: "localhost"
+db_port: 5433
 db_user: "postgres"
 db_password: "postgres"
 db_name: "uploader"

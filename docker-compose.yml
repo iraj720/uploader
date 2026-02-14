@@ -8,8 +8,6 @@ services:
     environment:
       - CONFIG_PATH=/etc/uploader/config.yaml
       - POSTGRES_DSN=${POSTGRES_DSN:-postgres://postgres:postgres@postgres:5432/uploader?sslmode=disable}
-    depends_on:
-      - postgres
     volumes:
       - ./config.yaml:/etc/uploader/config.yaml:ro
     user: "65532:65532"
