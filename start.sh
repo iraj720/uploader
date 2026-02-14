@@ -27,5 +27,6 @@ DB_PATH="${FILES_DIR}/files.db"
 if [ ! -f "$DB_PATH" ]; then
   touch "$DB_PATH"
 fi
+chmod 666 "$DB_PATH"
 
 docker-compose up "$@"

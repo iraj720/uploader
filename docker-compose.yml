@@ -9,5 +9,5 @@ services:
       - CONFIG_PATH=/etc/uploader/config.yaml
     volumes:
       - ./config.yaml:/etc/uploader/config.yaml:ro
-      - ./files.db:/etc/uploader/files.db
+      - ./files.db:/etc/uploader/files.db:rw
     user: "65532:65532"
