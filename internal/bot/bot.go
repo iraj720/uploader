@@ -2,9 +2,7 @@ package bot
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -15,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aliebadimehr/telegram-uploader-bot/internal/link"
+	repository "github.com/aliebadimehr/telegram-uploader-bot/internal/repository"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	_ "github.com/lib/pq"
 	"gopkg.in/yaml.v3"
@@ -56,9 +55,6 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.DeleteDelay == 0 {
 		cfg.DeleteDelay = 30
 	}
-	if cfg.DefaultTag == "" {
-		cfg.DefaultTag = "@ashianes"
-	}
 	if cfg.DBHost == "" {
 		cfg.DBHost = "postgres"
 	}
@@ -77,6 +73,7 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.DBSSLMode == "" {
 		cfg.DBSSLMode = "disable"
 	}
+
 	cleanedSponsors := make([]string, 0, len(cfg.SponsoredChannels))
 	for _, sponsor := range cfg.SponsoredChannels {
 		if sponsor = strings.TrimSpace(sponsor); sponsor != "" {
@@ -108,11 +105,11 @@ type Bot struct {
 	configPath string
 	config     *Config
 	configMu   sync.RWMutex
-	db         *sql.DB
 	api        *tgbotapi.BotAPI
 	updates    tgbotapi.UpdatesChannel
 	logger     *log.Logger
 	linkRepo   *link.Repository
+	fileRepo   *repository.FileRepository
 	adminMu    sync.RWMutex
 	admins     map[int64]struct{}
 }
@@ -123,12 +120,8 @@ func New(configPath string) (*Bot, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open("postgres", cfg.databaseDSN())
+	db, err := openPostgres(cfg)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := initDB(db); err != nil {
 		return nil, err
 	}
 
@@ -143,15 +136,16 @@ func New(configPath string) (*Bot, error) {
 	updates := api.GetUpdatesChan(updateCfg)
 
 	linkRepo := link.NewRepository(db)
+	fileRepo := repository.NewFileRepository(db)
 
 	return &Bot{
 		configPath: configPath,
 		config:     cfg,
-		db:         db,
 		api:        api,
 		updates:    updates,
 		logger:     log.New(os.Stdout, "", log.LstdFlags),
 		linkRepo:   linkRepo,
+		fileRepo:   fileRepo,
 		admins:     make(map[int64]struct{}),
 	}, nil
 }
@@ -308,7 +302,7 @@ func (b *Bot) handleMedia(message *tgbotapi.Message) {
 	b.promptCaption(message.Chat.ID, fileKey, caption)
 }
 
-func (b *Bot) sendFileByType(chatID int64, record *fileRecord) error {
+func (b *Bot) sendFileByType(chatID int64, record *repository.FileRecord) error {
 	switch record.FileType {
 	case "document":
 		msg := tgbotapi.NewDocument(chatID, tgbotapi.FileID(record.FileID))
@@ -365,49 +359,16 @@ func (b *Bot) addFile(fileID, fileType, caption string) (string, error) {
 	if fileType == "" {
 		fileType = "document"
 	}
-	fileKey, err := generateKey()
-	if err != nil {
-		return "", err
-	}
-
-	_, err = b.db.Exec(
-		"INSERT INTO files (file_id, file_key, caption, file_type) VALUES (?, ?, ?, ?)",
-		fileID, fileKey, caption, fileType,
-	)
-	if err != nil {
-		return "", err
-	}
-	return fileKey, nil
+	return b.fileRepo.Save(fileID, fileType, caption)
 }
 
 func (b *Bot) updateCaption(fileKey, caption string) error {
 	cleaned := b.processCaption(caption)
-	_, err := b.db.Exec(
-		"UPDATE files SET caption = ? WHERE file_key = ?",
-		cleaned, fileKey,
-	)
-	return err
+	return b.fileRepo.UpdateCaption(fileKey, cleaned)
 }
 
-func (b *Bot) getFile(fileKey string) (*fileRecord, error) {
-	row := b.db.QueryRow(
-		"SELECT file_id, caption, file_type FROM files WHERE file_key = ?",
-		fileKey,
-	)
-	var record fileRecord
-	if err := row.Scan(&record.FileID, &record.Caption, &record.FileType); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &record, nil
-}
-
-type fileRecord struct {
-	FileID   string
-	Caption  string
-	FileType string
+func (b *Bot) getFile(fileKey string) (*repository.FileRecord, error) {
+	return b.fileRepo.Get(fileKey)
 }
 
 func (b *Bot) processCaption(caption string) string {
@@ -656,14 +617,6 @@ func (b *Bot) persistConfig() error {
 	return os.WriteFile(b.configPath, raw, 0o600)
 }
 
-func generateKey() (string, error) {
-	buf := make([]byte, 8)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(buf), nil
-}
-
 func initDB(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS files (
@@ -686,6 +639,26 @@ func initDB(db *sql.DB) error {
 		);
 	`)
 	return err
+}
+
+func openPostgres(cfg *Config) (*sql.DB, error) {
+	dsn := cfg.databaseDSN()
+	var db *sql.DB
+	var err error
+	for i := 0; i < 15; i++ {
+		db, err = sql.Open("postgres", dsn)
+		if err == nil {
+			err = db.Ping()
+		}
+		if err == nil {
+			if initErr := initDB(db); initErr != nil {
+				return nil, initErr
+			}
+			return db, nil
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return nil, fmt.Errorf("postgres connect: %w", err)
 }
 
 func (b *Bot) getBotUsername() string {

@@ -1,4 +1,4 @@
-package link
+package repository
 
 import (
 	"database/sql"
@@ -32,7 +32,7 @@ func (r *Repository) Save(linkRecord *Link) error {
 		linkRecord.CreatedAt = time.Now().UTC()
 	}
 	_, err := r.db.Exec(
-		"INSERT INTO links (file_key, url, created_at) VALUES ($1, $2, $3)",
+		"INSERT INTO links (file_key, url, created_at) VALUES (?, ?, ?)",
 		linkRecord.FileKey,
 		linkRecord.URL,
 		linkRecord.CreatedAt,

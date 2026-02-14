@@ -12,7 +12,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux \
+RUN GOOS=linux \
     go build -ldflags="-s -w" -o /workspace/uploader ./cmd/uploader
 
 FROM debian:bookworm-slim
