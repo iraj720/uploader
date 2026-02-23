@@ -92,6 +92,8 @@ type Bot struct {
 	logger     *log.Logger
 	linkRepo   *link.Repository
 	fileRepo   *repository.FileRepository
+	pendingMu  sync.RWMutex
+	pending    map[int64]string
 	adminMu    sync.RWMutex
 	admins     map[int64]struct{}
 }
@@ -130,6 +132,7 @@ func New(configPath string) (*Bot, error) {
 		logger:     log.New(os.Stdout, "", log.LstdFlags),
 		linkRepo:   linkRepo,
 		fileRepo:   fileRepo,
+		pending:    make(map[int64]string),
 		admins:     make(map[int64]struct{}),
 	}, nil
 }
@@ -224,7 +227,9 @@ func (b *Bot) handleStart(message *tgbotapi.Message) {
 		}
 		return
 	}
+	fileKey := args[0]
 	if !b.isMember(message.From.ID) {
+		b.setPendingKey(message.From.ID, fileKey)
 		keyboard := b.buildJoinKeyboard()
 		msg := tgbotapi.NewMessage(message.Chat.ID, localization.JoinText)
 		msg.ReplyMarkup = keyboard
@@ -234,7 +239,6 @@ func (b *Bot) handleStart(message *tgbotapi.Message) {
 		return
 	}
 
-	fileKey := args[0]
 	record, err := b.getFile(fileKey)
 	if err != nil {
 		b.logger.Printf("failed to fetch file key %s: %v", fileKey, err)
@@ -275,7 +279,6 @@ func (b *Bot) handleMedia(message *tgbotapi.Message) {
 		return
 	}
 	linkURL := fmt.Sprintf("https://t.me/%s?start=%s", strings.TrimPrefix(b.getBotUsername(), "@"), fileKey)
-	linkURL, err = fmt.Sprintf("https://t.me/%s?start=%s", strings.TrimPrefix(b.getBotUsername(), "@"), fileKey), nil
 	if err := b.linkRepo.Save(&link.Link{
 		FileKey:   fileKey,
 		URL:       linkURL,
@@ -446,6 +449,10 @@ func (b *Bot) buildJoinKeyboard() tgbotapi.InlineKeyboardMarkup {
 		return tgbotapi.NewInlineKeyboardMarkup()
 	}
 
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("عضو شدم ✅", "join_confirm"),
+	))
+
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
@@ -463,6 +470,9 @@ func (b *Bot) handleCallbackQuery(cq *tgbotapi.CallbackQuery) {
 		text = guideUpload
 	case "guide_link":
 		text = guideGetLink
+	case "join_confirm":
+		b.handleJoinConfirm(cq)
+		return
 	default:
 		return
 	}
@@ -484,6 +494,41 @@ func (b *Bot) handleHelp(message *tgbotapi.Message) {
 	if _, err := b.api.Send(msg); err != nil {
 		b.logger.Printf("send help: %v", err)
 	}
+}
+
+func (b *Bot) handleJoinConfirm(cq *tgbotapi.CallbackQuery) {
+	if cq.From == nil || cq.Message == nil {
+		return
+	}
+	if !b.isMember(cq.From.ID) {
+		msg := tgbotapi.NewMessage(cq.Message.Chat.ID, "ابتدا در کانال‌ها عضو شوید و دوباره تلاش کنید.")
+		if _, err := b.api.Send(msg); err != nil {
+			b.logger.Printf("send join confirm failed: %v", err)
+		}
+		return
+	}
+	fileKey, ok := b.getPendingKey(cq.From.ID)
+	if !ok || fileKey == "" {
+		msg := tgbotapi.NewMessage(cq.Message.Chat.ID, "عضویت تأیید شد. لطفاً دوباره لینک را باز کنید.")
+		if _, err := b.api.Send(msg); err != nil {
+			b.logger.Printf("send join confirm notice failed: %v", err)
+		}
+		return
+	}
+	record, err := b.getFile(fileKey)
+	if err != nil {
+		b.logger.Printf("failed to fetch file key %s: %v", fileKey, err)
+		b.reply(cq.Message.Chat.ID, "مشکلی پیش آمد، لطفاً دوباره تلاش کنید.")
+		return
+	}
+	if record == nil {
+		b.reply(cq.Message.Chat.ID, localization.NotFoundText)
+		return
+	}
+	if err := b.sendFileByType(cq.Message.Chat.ID, record); err != nil {
+		b.logger.Printf("failed to send file %s: %v", fileKey, err)
+	}
+	b.clearPendingKey(cq.From.ID)
 }
 
 func (b *Bot) promptCaption(chatID int64, fileKey, caption string) {
@@ -571,6 +616,25 @@ func (b *Bot) setAdmin(userID int64, active bool) {
 		return
 	}
 	delete(b.admins, userID)
+}
+
+func (b *Bot) setPendingKey(userID int64, fileKey string) {
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	b.pending[userID] = fileKey
+}
+
+func (b *Bot) getPendingKey(userID int64) (string, bool) {
+	b.pendingMu.RLock()
+	defer b.pendingMu.RUnlock()
+	fileKey, ok := b.pending[userID]
+	return fileKey, ok
+}
+
+func (b *Bot) clearPendingKey(userID int64) {
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	delete(b.pending, userID)
 }
 
 func (b *Bot) getConfig() *Config {
